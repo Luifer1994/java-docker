@@ -1,14 +1,14 @@
 services:
   backend:
     build:
-      context: ./backend
+      context: ./java-hello-word
       dockerfile: Dockerfile
     container_name: spring-boot-backend
     ports:
       - "8080:8080"
     volumes:
       # Montar código fuente para hot reload
-      - ./backend/src:/app/src
+      - ./java-hello-word/src:/app/src
       # Cache de Maven para mejorar performance
       - maven-repo:/root/.m2
     environment:
