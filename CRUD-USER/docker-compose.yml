@@ -1,55 +1,123 @@
 services:
-  db:
+  # ==========================================
+  # 1. BASES DE DATOS
+  # ==========================================
+  
+  db-users:
     image: postgres:16
-    container_name: crud-user-db
+    container_name: db_users
     environment:
-      POSTGRES_DB: postgres
+      POSTGRES_DB: db_users
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: password
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - pg_data_users:/var/lib/postgresql/data
+    networks:
+      - app-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  api:
-    build:
-      context: ./api
-      dockerfile: Dockerfile
-    container_name: crud-user-api
+  db-auth:
+    image: postgres:16
+    container_name: db_auth
+    environment:
+      POSTGRES_DB: db_auth
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg_data_auth:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ==========================================
+  # 2. MICROSERVICIOS
+  # ==========================================
+
+  api-gateway:
+    build: ./api-gateway
+    container_name: api-gateway
     ports:
       - "8080:8080"
-    restart: always
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://crud-user-db:5432/postgres
-      SPRING_DATASOURCE_USERNAME: postgres
-      SPRING_DATASOURCE_PASSWORD: postgres
-      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      - SERVER_PORT=8080
+      # --- VARIABLES NUEVAS (Se inyectan en application.yml) ---
+      - URI_AUTH=http://ms-auth:8081
+      - URI_USER=http://ms-users:8082
+    networks:
+      - app-network
     depends_on:
-      db:
+      - ms-auth
+      - ms-users
+
+  ms-auth:
+    build: ./api-auth
+    container_name: ms-auth
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db-auth:5432/db_auth
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: password
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+    networks:
+      - app-network
+    depends_on:
+      db-auth:
         condition: service_healthy
-    volumes:
-       - ./api:/app
-    # Using default network, so services can talk by service name (container_name)
+
+  ms-users:
+    build: ./api-user
+    container_name: ms-users
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db-users:5432/db_users
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: password
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+    networks:
+      - app-network
+    depends_on:
+      db-users:
+        condition: service_healthy
+  # ==========================================
+  # 3. FRONTEND
+  # ==========================================
 
   front:
-    build:
-      context: ./front
-      dockerfile: Dockerfile
-    container_name: crud-user-front
+    build: ./front
+    container_name: front
     ports:
-      - "5173:5173" 
+      - "5173:5173"
     volumes:
       - ./front:/app
       - /app/node_modules
     environment:
-      - VITE_API_URL=http://localhost:8080
+      - VITE_API_URL=http://localhost:8080 
+    networks:
+      - app-network
     depends_on:
-      - api
+      - api-gateway
 
+# ==========================================
+# 4. VOLUMENES Y REDES
+# ==========================================
 volumes:
-  postgres_data:
+  pg_data_users:
+  pg_data_auth:
+
+networks:
+  app-network:
+    driver: bridge
